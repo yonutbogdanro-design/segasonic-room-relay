@@ -1,0 +1,16 @@
+{
+  "name": "segasonic-room-relay",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Small room-code relay for SegaSonic PC multiplayer",
+  "scripts": {
+    "start": "node server.cjs",
+    "test": "node --test test.cjs"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "ws": "8.22.0"
+  }
+}
