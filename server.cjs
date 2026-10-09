@@ -2,7 +2,7 @@
 const http = require('node:http');
 const crypto = require('node:crypto');
 const { WebSocketServer, WebSocket } = require('ws');
-const BUILD = 'SSPC20261009A';
+const BUILD = 'SSPC20261009B';
 const CODE = /^[A-Z2-7]{8}$/;
 const NAME = /^[A-Za-z0-9_-]{1,24}$/;
 
@@ -141,3 +141,4 @@ if (require.main === module) {
   relay.server.listen(Number(process.env.PORT || 10000), '0.0.0.0', () => console.log('SegaSonic relay listening'));
   for (const signal of ['SIGTERM', 'SIGINT']) process.on(signal, () => { relay.close().then(() => process.exit(0)); });
 }
+
