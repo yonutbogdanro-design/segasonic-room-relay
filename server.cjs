@@ -2,7 +2,8 @@
 const http = require('node:http');
 const crypto = require('node:crypto');
 const { WebSocketServer, WebSocket } = require('ws');
-const BUILD = 'SSPC20261009B';
+const BUILD = 'SSPC20261011C';
+const BUILDS = new Set([BUILD,'SSPC20261009B']);
 const CODE = /^[A-Z2-7]{8}$/;
 const NAME = /^[A-Za-z0-9_-]{1,24}$/;
 
@@ -28,10 +29,12 @@ function createRelay() {
     ws.send(message); return true;
   }
   function error(ws, message) { send(ws, 'ERROR ' + message); }
+  const publicLobby=require('./public-lobby.cjs')({send,error,build:BUILD});
   function remove(ws) {
     if (!clients.delete(ws)) return;
     addresses.set(ws.address, (addresses.get(ws.address) || 1) - 1);
     if (!addresses.get(ws.address)) addresses.delete(ws.address);
+    if(publicLobby.remove(ws))return;
     const room = ws.room;
     if (!room) return;
     if (room.host === ws) {
@@ -73,11 +76,12 @@ function createRelay() {
           const newline = message.indexOf('\n');
           const peer = message.slice(5, newline);
           const data = message.slice(newline + 1);
-          if (!ws.room || newline < 0 || !/^[0-9]{1,8}$/.test(peer) || !data.endsWith('\n') || /[^\x20-\x7e\n]/.test(data)) {
+          if ((!ws.room&&!ws.publicGame) || newline < 0 || !/^[0-9]{1,8}$/.test(peer) || !data.endsWith('\n') || /[^\x20-\x7e\n]/.test(data)) {
             error(ws, 'Invalid_packet'); return;
           }
           const lines = data.trimEnd().split('\n');
           if (lines.some(line => line.length > 256)) { ws.close(1008, 'Line too long'); return; }
+          if(ws.publicGame){if(peer!=='0'){error(ws,'Invalid_packet');return;}publicLobby.handle(ws,lines);return;}
           const host = ws.room.host === ws;
           const allowed = host ? /^(WELCOME|ERROR|SCORES|SCORE|START|STOP|NAMES|F)( |$)/ : /^(HELLO|INPUT|SCORE|GETSCORES)( |$)/;
           if (lines.some(line => !allowed.test(line))) { error(ws, 'Invalid_game_command'); return; }
@@ -92,25 +96,27 @@ function createRelay() {
         }
         if (/^LOCK [01]$/.test(message) && ws.room?.host === ws) { ws.room.locked = message.endsWith('1'); return; }
         const parts = message.split(' ');
-        if (parts[0] === 'LIST' && parts.length === 2 && parts[1] === BUILD && !ws.room) {
+        if (parts[0] === 'LIST' && parts.length === 2 && BUILDS.has(parts[1]) && !ws.room && !ws.publicGame) {
           ws.deadline = Date.now() + 60000;
-          const list = [...rooms.values()].filter(room => room.public && !room.locked && room.guests.size < room.capacity);
-          send(ws, 'ROOMS\n' + list.map(room => `${room.code} ${room.name} ${1 + room.guests.size + (room.bot ? 1 : 0)}`).join('\n'));
+          const list = [...rooms.values()].filter(room => room.build===parts[1] && room.public && !room.locked && room.guests.size < room.capacity);
+          send(ws, 'ROOMS\n' + (parts[1]===BUILD?publicLobby.row()+(list.length?'\n':''):'') + list.map(room => `${room.code} ${room.name} ${1 + room.guests.size + (room.bot ? 1 : 0)}`).join('\n'));
           return;
         }
-        if (ws.room) { error(ws, 'Already_in_room'); return; }
-        if (parts[1] !== BUILD) { error(ws, 'Update_game_to_the_same_version'); return; }
+        if (ws.room||ws.publicGame) { error(ws, 'Already_in_room'); return; }
+        if (!BUILDS.has(parts[1])) { error(ws, 'Update_game_to_the_same_version'); return; }
         if (parts[0] === 'CREATE' && parts.length === 5 && /^[01]$/.test(parts[2]) && /^[01]$/.test(parts[3]) && NAME.test(parts[4])) {
           if (rooms.size >= 100) { error(ws, 'Relay_full_try_later'); return; }
           let code;
           do { code = [...crypto.randomBytes(8)].map(n => 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'[n & 31]).join(''); } while (rooms.has(code));
           const bot = parts[2] === '1';
-          const room = { code, host: ws, bot, capacity: bot ? 1 : 2, public: parts[3] === '1', name: parts[4], locked: false, guests: new Map(), next: 1 };
+          const room = { build:parts[1], code, host: ws, bot, capacity: bot ? 1 : 2, public: parts[3] === '1', name: parts[4], locked: false, guests: new Map(), next: 1 };
           ws.room = room; rooms.set(code, room); send(ws, 'CREATED ' + code); return;
         }
         if (parts[0] === 'JOIN' && parts.length === 4 && CODE.test(parts[2]) && NAME.test(parts[3])) {
+          if(parts[2]==='PUBLICAA'&&parts[1]===BUILD){publicLobby.join(ws,parts[3]);return;}
           const room = rooms.get(parts[2]);
           if (!room) { error(ws, 'Room_not_found_check_the_code'); return; }
+          if(room.build!==parts[1]){error(ws,'Update_game_to_the_same_version');return;}
           if (room.locked) { error(ws, 'Match_started_wait_for_the_host'); return; }
           if (room.guests.size >= room.capacity) { error(ws, 'Room_full'); return; }
           ws.room = room; ws.peer = room.next++; room.guests.set(ws.peer, ws);
@@ -122,13 +128,13 @@ function createRelay() {
   });
   const heartbeat = setInterval(() => {
     for (const ws of clients) {
-      if (!ws.alive || (!ws.room && Date.now() > ws.deadline)) { ws.terminate(); continue; }
+      if (!ws.alive || (!ws.room && !ws.publicGame && Date.now() > ws.deadline)) { ws.terminate(); continue; }
       ws.alive = false; ws.ping();
     }
   }, 10000);
   heartbeat.unref();
   async function close() {
-    clearInterval(heartbeat);
+    clearInterval(heartbeat);publicLobby.close();
     for (const ws of clients) ws.terminate();
     await new Promise(resolve => wss.close(resolve));
     await new Promise(resolve => server.close(resolve));

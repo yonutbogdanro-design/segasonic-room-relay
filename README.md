@@ -16,7 +16,9 @@ Node 22 or later: `npm ci`, `npm test`, `npm start`. HTTP listens on `PORT` (def
 
 ## Protocol and limits
 
-Text WebSocket messages: `CREATE SSPC20261009B BOT PUBLIC NAME`, `JOIN SSPC20261009B CODE NAME`, `LIST SSPC20261009B`. The service responds with `CREATED CODE`, `JOINED CODE`, `PEER ID`, `LEFT ID`, or `ERROR REASON`. A host sends `SEND ID\nGAME_LINES`; guests use ID 0. Received packets are `DATA ID\nGAME_LINES`. `LOCK 1` closes the lobby to new players; `LOCK 0` reopens it. `DROP ID` removes a guest. `PING` receives `PONG`.
+Text WebSocket messages: `CREATE SSPC20261011C BOT PUBLIC NAME`, `JOIN SSPC20261011C CODE NAME`, `LIST SSPC20261011C`. The service responds with `CREATED CODE`, `JOINED CODE`, `PEER ID`, `LEFT ID`, or `ERROR REASON`. A host sends `SEND ID\nGAME_LINES`; guests use ID 0. Received packets are `DATA ID\nGAME_LINES`. `LOCK 1` closes the lobby to new players; `LOCK 0` reopens it. `DROP ID` removes a guest. `PING` receives `PONG`.
 
 Public rooms may appear in the directory; private rooms require the randomly generated eight-character code. Codes are invitations, not identity verification. Never use a code as a password elsewhere. Connections and payloads are bounded, and only supported game command types are forwarded. Relay and hosting operators necessarily receive connection metadata, but other players are not sent IP addresses. No chat, files or arbitrary TCP forwarding are supported.
 
+
+Public lobby PUBLICAA always appears for protocol C. It creates additional 3-player groups as needed and coordinates input at 60 Hz, waiting for loading and bounding unacknowledged frames. Clients run the ROM. No player hosts this public input clock. Free Render still sleeps while idle; paid compute is needed to remove that limitation. Older B rooms remain isolated and supported.
